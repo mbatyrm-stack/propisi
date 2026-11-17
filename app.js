@@ -1,8 +1,8 @@
-// Тренажёр «Прописи по уроку»: вся логика страницы.
+// Тренажёр «Прописи по уроку» в интерфейсе okchinese: вся логика страницы.
 //
 // Как читать этот файл (сверху вниз):
-//   1. Пять шагов и их правила
-//   2. Состояние: что сейчас на экране и что уже пройдено
+//   1. Пять шагов и три режима сайта
+//   2. Состояние: что на экране и что уже пройдено
 //   3. Мелкие помощники
 //   4. Экраны: урок, разбор иероглифа, письмо, итог
 //   5. Письмо: работа с библиотекой Hanzi Writer
@@ -45,18 +45,45 @@ const STEPS = [
 ];
 const LAST_STEP = STEPS.length - 1;
 
+// Три режима сайта («Изучение», «Практика», «Проверка знаний») становятся
+// тремя этапами одной тренировки: каждый объединяет свои шаги.
+const MODES = [
+  { name: "Изучение", steps: [0, 1] },
+  { name: "Практика", steps: [2, 3] },
+  { name: "Проверка знаний", steps: [4] },
+];
+const modeOf = (step) => MODES.findIndex((mode) => mode.steps.includes(step));
+
+// Статусы иероглифа — те же слова, что на сайте.
+const STATUS = {
+  "": { label: "Не изучен", tone: "" },
+  learning: { label: "Изучается", tone: "learning" },
+  learned: { label: "Изучен", tone: "learned" },
+  review: { label: "На повторение", tone: "review" },
+};
+const FILTERS = [
+  { value: "all", label: "Все" },
+  { value: "", label: "Не изучены" },
+  { value: "learning", label: "Изучаются" },
+  { value: "learned", label: "Изучены" },
+  { value: "review", label: "Требуют повторения" },
+];
+
 
 /* ---------- 2. Состояние ---------- */
 
 const CHARS = LESSON.characters;              // иероглифы урока из lesson.js
-const STORAGE_KEY = "propisi-po-uroku-v1";    // под этим именем браузер хранит прогресс
+const STORAGE_KEY = "okchinese-proto-v2";     // под этим именем браузер хранит прогресс
 const SCREENS = ["lesson", "intro", "write", "done"];
+const EMPTY_PROGRESS = { results: {}, exercises: 0 };
 
 const state = {
   screen: "lesson",         // какой экран открыт
+  tab: "lessons",           // вкладка на экране урока: "lessons" или "review"
+  filter: "all",            // фильтр «Прогресс»
   index: 0,                 // какой по счёту иероглиф урока
   step: 0,                  // какой шаг письма идёт
-  results: loadResults(),   // что пройдено: { "好": { mistakes: [0, 1, …], peeked: false, status: "learned" } }
+  progress: loadProgress(), // { results: { "惯": { mistakes, peeked, status } }, exercises: 7 }
 };
 
 let writer = null;       // поле для письма (объект библиотеки Hanzi Writer)
@@ -70,24 +97,27 @@ let leadTimer = 0;       // повтор подсветки следующей �
 
 const RESET_CONFIRM_MS = 4000;   // сколько ждём второго касания по «Сбросить»
 // Скорость подсветки черты. У библиотеки по умолчанию 2: черта мигает за треть
-// секунды, и её почти не видно. При 0,6 черта прорисовывается около секунды,
-// и видно, откуда она начинается и куда идёт.
+// секунды, и её почти не видно. При 0,6 черта прорисовывается около секунды.
 const HIGHLIGHT_SPEED = 0.6;
 const LEAD_REPEAT_MS = 3000;     // как часто повторять подсветку, пока ученик думает
+const ADVANCE_MS = 1100;         // пауза после шага перед следующим
 
-// Прогресс хранится в браузере ученика. Если хранилище недоступно
-// (например, приватное окно), тренажёр просто работает без памяти.
-function loadResults() {
+// Прогресс хранится в браузере ученика. На сайте он лежал бы в аккаунте.
+// Если хранилище недоступно (например, приватное окно), работаем без памяти.
+function loadProgress() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    return saved && typeof saved === "object" ? saved : {};
+    if (saved && typeof saved.results === "object" && saved.results !== null) {
+      return { results: saved.results, exercises: Number(saved.exercises) || 0 };
+    }
   } catch (error) {
-    return {};
+    /* хранилище недоступно или испорчено — начинаем с нуля */
   }
+  return EMPTY_PROGRESS;
 }
-function saveResults() {
+function saveProgress() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.results));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.progress));
   } catch (error) {
     /* без памяти тоже работаем */
   }
@@ -98,9 +128,12 @@ function saveResults() {
 
 const app = document.getElementById("app");
 const current = () => CHARS[state.index];
-const statusOf = (ch) => (state.results[ch.char] || {}).status || "";
+const resultOf = (ch) => state.progress.results[ch.char];
+const statusOf = (ch) => (resultOf(ch) || {}).status || "";
+const countStatus = (status) => CHARS.filter((ch) => statusOf(ch) === status).length;
 const inLesson = (char) => CHARS.some((ch) => ch.char === char);
 const sameList = (a, b) => a.length === b.length && a.every((value, i) => value === b[i]);
+const lessonShort = () => LESSON.title.split(":")[0];
 
 // Делает текст безопасным для вставки в страницу.
 const esc = (text) =>
@@ -108,8 +141,9 @@ const esc = (text) =>
 
 // Читает значение цвета по имени из блока :root в index.html.
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const roleVar = (role) => (role === "sound" ? "var(--sound)" : "var(--meaning)");
-const roleToken = (role) => css(role === "sound" ? "--sound" : "--meaning");
+const roleVar = (role, onPaper) =>
+  "var(--" + (role === "sound" ? "sound" : "meaning") + (onPaper ? "-ink" : "") + ")";
+const roleToken = (role) => css(role === "sound" ? "--sound-ink" : "--meaning-ink");
 
 // «1 ошибка, 2 ошибки, 5 ошибок»
 function plural(n, one, few, many) {
@@ -125,23 +159,26 @@ function mistakesText(n) {
   return n + " " + plural(n, "ошибка", "ошибки", "ошибок");
 }
 
-// Следующий по порядку иероглиф, который ещё не выучен. -1 — таких не осталось.
+// Следующий не выученный иероглиф после from (по кругу). -1 — все выучены.
 function nextToDo(from) {
-  for (let i = from + 1; i < CHARS.length; i += 1) {
+  for (let k = 1; k < CHARS.length; k += 1) {
+    const i = (from + k) % CHARS.length;
     if (statusOf(CHARS[i]) !== "learned") return i;
   }
   return -1;
 }
+// С чего начать тренировку: сначала то, что на повторении, потом новое.
+function firstToTrain() {
+  const review = CHARS.findIndex((ch) => statusOf(ch) === "review");
+  if (review !== -1) return review;
+  const fresh = CHARS.findIndex((ch) => statusOf(ch) !== "learned");
+  return fresh === -1 ? 0 : fresh;
+}
 
-// Разлиновка листа: крест и две диагонали.
-const GRID =
-  '<svg class="sheet__grid" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">' +
+// Разлиновка листа: крест и две диагонали пунктиром.
+const GUIDES =
+  '<svg class="paper__guides" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">' +
   '<path d="M50 0V100M0 50H100M0 0L100 100M100 0L0 100"></path></svg>';
-
-// Кружок, нарисованный «от руки».
-const CIRCLE =
-  '<svg class="circle" viewBox="0 0 100 100" aria-hidden="true">' +
-  '<path d="M55 7C80 6 95 27 93 52 91 79 68 95 45 93 21 91 5 70 8 45 11 22 31 8 60 9"></path></svg>';
 
 // Рисует иероглиф из данных о чертах (strokes.js).
 // colorOf — необязательная функция «номер черты → цвет».
@@ -150,7 +187,7 @@ function glyph(char, colorOf) {
   if (!data) return '<span class="glyph glyph--font hanzi" lang="zh-Hans">' + esc(char) + "</span>";
   const place = HanziWriter.getScalingTransform(100, 100, 10);
   const paths = data.strokes
-    .map((d, i) => '<path d="' + d + '" style="fill:' + (colorOf ? colorOf(i) : "var(--ink)") + '"></path>')
+    .map((d, i) => '<path d="' + d + '" style="fill:' + (colorOf ? colorOf(i) : "var(--text)") + '"></path>')
     .join("");
   return (
     '<svg class="glyph" viewBox="0 0 100 100" role="img" aria-label="' + esc(char) + '">' +
@@ -158,12 +195,17 @@ function glyph(char, colorOf) {
   );
 }
 
-// Цвет черты по тому, к какой части иероглифа она относится.
+// Цвет черты на белом листе по тому, к какой части иероглифа она относится.
 function partColors(ch) {
   return (i) => {
     const part = ch.parts.find((p) => p.strokes.includes(i));
-    return part ? roleVar(part.role) : "var(--ink)";
+    return part ? roleVar(part.role, true) : "var(--paper-ink)";
   };
+}
+
+function badge(ch) {
+  const status = STATUS[statusOf(ch)];
+  return '<span class="badge' + (status.tone ? " badge--" + status.tone : "") + '">' + status.label + "</span>";
 }
 
 
@@ -171,124 +213,149 @@ function partColors(ch) {
 // Каждая функция view… возвращает кусок страницы в виде текста.
 // Кнопки помечены data-action="…": по этому имени раздел 6 понимает, что делать.
 
-function topBar(backAction, backLabel) {
+// Шапка экранов тренировки — как у панели тренажёра на сайте: слева что открыто,
+// справа «Назад».
+function topBar(titleHtml, sub, backAction) {
   return `
     <header class="top">
-      <button class="link" type="button" data-action="${backAction}">‹ ${backLabel}</button>
-      <span class="count">${state.index + 1} из ${CHARS.length}</span>
+      <div>
+        <p class="top__title">${titleHtml}</p>
+        <p class="top__sub">${esc(sub)}</p>
+      </div>
+      <button class="link" type="button" data-action="${backAction}">Назад</button>
     </header>`;
 }
 
-// Экран урока: фразы и плитки с иероглифами.
-function viewLesson() {
-  const attempted = CHARS.filter((ch) => statusOf(ch)).length;
-  const toReview = CHARS.filter((ch) => statusOf(ch) === "review");
-  const hasLearned = CHARS.some((ch) => statusOf(ch) === "learned");
-  const fresh = CHARS.findIndex((ch) => !statusOf(ch));
+function tabsBar() {
+  const review = countStatus("review");
+  const item = (tab, label, extra) =>
+    `<button class="tabs__item${state.tab === tab ? " is-active" : ""}" type="button" data-action="tab" data-tab="${tab}">${label}${extra || ""}</button>`;
+  const off = (label) =>
+    `<button class="tabs__item" type="button" disabled title="В прототипе не работает">${label}</button>`;
+  return `
+    <nav class="tabs" aria-label="Разделы тренажёра">
+      ${off("По уровням HSK 3.0")}
+      ${item("lessons", "Мои уроки")}
+      ${item("review", "На повторение", review ? `<span class="tabs__count">${review}</span>` : "")}
+      ${off("Своя подборка")}
+    </nav>`;
+}
 
-  // Главная кнопка зависит от того, сколько уже пройдено.
-  let main;
-  if (fresh !== -1) {
-    main = { index: fresh, label: attempted ? "Продолжить: " + CHARS[fresh].char : "Начать" };
-  } else if (toReview.length) {
-    main = { index: CHARS.indexOf(toReview[0]), label: "Повторить отмеченные: " + toReview.length };
-  } else {
-    main = { index: 0, label: "Пройти ещё раз" };
-  }
-
-  const phrases = LESSON.phrases
-    .map((p) => {
-      const zh = Array.from(p.zh)
-        .map((c) => (inLesson(c) ? "<mark>" + c + "</mark>" : esc(c)))
-        .join("");
-      return `
-        <li>
-          <p class="phrase__zh hanzi" lang="zh-Hans">${zh}</p>
-          <p class="pinyin">${esc(p.pinyin)}</p>
-          <p class="phrase__ru">${esc(p.ru)}</p>
-        </li>`;
-    })
-    .join("");
-
-  const tiles = CHARS.map((ch, i) => {
-    const status = statusOf(ch);
-    return `
+function tilesList(list) {
+  return `<ul class="tiles">${list
+    .map(({ ch, i }) => `
       <li>
         <button class="tile" type="button" data-action="open" data-index="${i}">
-          <span class="sheet">${GRID}<span class="sheet__layer">${glyph(ch.char)}</span>${status === "learned" ? CIRCLE : ""}</span>
+          <span class="tile__glyph">${glyph(ch.char)}</span>
           <span class="tile__pinyin pinyin">${esc(ch.pinyin)}</span>
           <span class="tile__ru">${esc(ch.short)}</span>
-          ${status === "review" ? '<span class="tile__mark">повторить</span>' : ""}
+          ${badge(ch)}
         </button>
+      </li>`)
+    .join("")}</ul>`;
+}
+
+function lessonsBlock() {
+  const list = CHARS.map((ch, i) => ({ ch, i }))
+    .filter(({ ch }) => state.filter === "all" || statusOf(ch) === state.filter);
+  const lessons = [`<option selected>${esc(LESSON.title)}</option>`]
+    .concat(LESSON.otherLessons.map((title) => `<option disabled>${esc(title)} — в прототипе нет</option>`))
+    .join("");
+  const filters = FILTERS.map((f) =>
+    `<option value="${f.value}"${f.value === state.filter ? " selected" : ""}>${f.label}</option>`).join("");
+  const route = MODES.map((mode) => {
+    const nums = mode.steps.map((s) => s + 1);
+    const steps = nums.length > 1 ? "шаги " + nums.join("–") : "шаг " + nums[0];
+    return `<li><span class="route__name">${mode.name}</span><span class="route__steps">${steps}</span></li>`;
+  }).join("");
+
+  return `
+    <h2 class="h2">Иероглифы из уроков <span class="h2__count">${CHARS.length}</span></h2>
+    <div class="controls">
+      <label class="field"><span class="field__label">Урок</span>
+        <select class="select" aria-label="Урок">${lessons}</select></label>
+      <label class="field"><span class="field__label">Прогресс</span>
+        <select class="select" data-change="filter" aria-label="Прогресс">${filters}</select></label>
+    </div>
+    <ol class="route" aria-label="Этапы тренировки">${route}</ol>
+    <p class="from-cards">Чтение и перевод подтянуты из ваших «Карточек».</p>
+    ${list.length ? tilesList(list) : '<p class="empty">С таким прогрессом в уроке иероглифов нет.</p>'}`;
+}
+
+function reviewBlock() {
+  const list = CHARS.map((ch, i) => ({ ch, i })).filter(({ ch }) => statusOf(ch) === "review");
+  return `
+    <h2 class="h2">На повторение <span class="h2__count">${list.length}</span></h2>
+    <p class="subtitle">Сюда попадают иероглифы, которые на «Проверке знаний» написаны с ошибкой или с подсказкой.</p>
+    ${list.length ? tilesList(list) : '<p class="empty">Пока пусто. Всё, что написано по памяти без ошибок, засчитывается в «Изучено».</p>'}`;
+}
+
+function resetButton() {
+  return resetArmed
+    ? '<button class="btn btn--danger btn--auto" type="button" data-action="reset">Точно сбросить?</button>'
+    : '<button class="btn btn--secondary btn--auto" type="button" data-action="reset">Сбросить</button>';
+}
+
+// Экран урока: шапка вкладки «Иероглифы», счётчики, вкладки, плитки.
+function viewLesson() {
+  const touched = CHARS.some((ch) => resultOf(ch));
+  return `
+    <main class="body body--scroll" id="pageScroll">
+      <p class="proto">Прототип для okchinese: так тренажёр выглядел бы во вкладке «Иероглифы». Меню и логотипа сайта здесь нет.</p>
+      <header class="page-head">
+        <h1 class="title">Тренажёр написания китайских иероглифов онлайн</h1>
+        <p class="subtitle">Разберите, из чего состоит иероглиф, и напишите его пять раз: с каждым разом подсказок меньше.</p>
+      </header>
+      <div class="badges">
+        <span class="badge">Изучено: ${countStatus("learned")}</span>
+        <span class="badge">Для повторения: ${countStatus("review")}</span>
+        <span class="badge">Выполнено упражнений: ${state.progress.exercises}</span>
+      </div>
+      ${tabsBar()}
+      ${state.tab === "review" ? reviewBlock() : lessonsBlock()}
+    </main>
+    <footer class="actions">
+      ${touched ? resetButton() : ""}
+      <button class="btn" type="button" data-action="train">Начать тренировку</button>
+    </footer>`;
+}
+
+// Экран разбора: чтение, перевод, слово из урока и части иероглифа.
+function viewIntro() {
+  const ch = current();
+  const parts = ch.parts.map((part) => {
+    const also = part.seeAlso.map((item) => {
+      const here = inLesson(item.c) && item.c !== ch.char;
+      return `
+        <li class="also__item${here ? " also__item--lesson" : ""}">
+          <span class="also__zh hanzi" lang="zh-Hans">${esc(item.c)}</span>
+          <span class="also__py">${esc(item.p)}</span>
+          <span class="also__ru">${esc(item.m)}${here ? ' · <span class="also__tag">в уроке</span>' : ""}</span>
+        </li>`;
+    }).join("");
+    return `
+      <li class="part part--${part.role}">
+        <span class="part__glyph hanzi" lang="zh-Hans">${esc(part.glyph)}</span>
+        <div>
+          <p class="part__role">${part.role === "sound" ? "Фонетик · звучание" : "Ключ · смысл"}</p>
+          <p><span class="pinyin">${esc(part.pinyin)}</span> · ${esc(part.meaning)}</p>
+        </div>
+        <div class="part__also">
+          <p class="also__label">Ещё встречается в</p>
+          <ul class="also">${also}</ul>
+        </div>
       </li>`;
   }).join("");
 
   return `
-    <main class="body body--scroll">
-      <header>
-        <p class="eyebrow">Урок ${LESSON.number}</p>
-        <h1 class="title">${esc(LESSON.title)}</h1>
-      </header>
-      <ul class="phrases">${phrases}</ul>
-      <h2 class="h2">Иероглифы урока <span class="h2__count">${CHARS.length}</span></h2>
-      <ul class="tiles">${tiles}</ul>
-      ${hasLearned ? `<p class="legend">${CIRCLE}<span>Красный кружок — иероглиф написан по памяти без ошибок.</span></p>` : ""}
-      <p class="proto-note">Это прототип: урок, фразы и подписи взяты для примера.</p>
-    </main>
-    <footer class="actions">
-      ${attempted ? resetButton() : ""}
-      <button class="btn" type="button" data-action="open" data-index="${main.index}">${main.label}</button>
-    </footer>`;
-}
-
-// Кнопка «Сбросить»: первое касание только спрашивает, второе стирает прогресс.
-function resetButton() {
-  return resetArmed
-    ? '<button class="btn btn--ghost btn--narrow btn--danger" type="button" data-action="reset">Точно сбросить?</button>'
-    : '<button class="btn btn--ghost btn--narrow" type="button" data-action="reset">Сбросить</button>';
-}
-
-// Экран разбора: чтение, перевод и части иероглифа.
-function viewIntro() {
-  const ch = current();
-
-  const parts = ch.parts
-    .map((part) => {
-      const also = part.seeAlso
-        .map((item) => {
-          const here = inLesson(item.c);
-          return `
-            <li class="also__item${here ? " also__item--lesson" : ""}">
-              <span class="also__zh hanzi" lang="zh-Hans">${esc(item.c)}</span>
-              <span class="also__py pinyin">${esc(item.p)}</span>
-              <span class="also__ru">${esc(item.m)}${here ? ' · <span class="also__tag">в уроке</span>' : ""}</span>
-            </li>`;
-        })
-        .join("");
-      return `
-        <li class="part part--${part.role}">
-          <span class="part__glyph hanzi" lang="zh-Hans">${esc(part.glyph)}</span>
-          <div>
-            <p class="part__role">${part.role === "sound" ? "Фонетик · звучание" : "Ключ · смысл"}</p>
-            <p><span class="pinyin">${esc(part.pinyin)}</span> · ${esc(part.meaning)}</p>
-          </div>
-          <div class="part__also">
-            <p class="also__label">Ещё встречается в</p>
-            <ul class="also">${also}</ul>
-          </div>
-        </li>`;
-    })
-    .join("");
-
-  return `
-    ${topBar("lesson", "Урок")}
+    ${topBar(esc(lessonShort()), (state.index + 1) + " из " + CHARS.length, "lesson")}
     <main class="body body--scroll">
       <section class="char-head">
-        <div class="sheet">${GRID}<div class="sheet__layer" id="introGlyph">${glyph(ch.char, partColors(ch))}</div></div>
+        <div class="paper">${GUIDES}<div class="paper__layer" id="introGlyph">${glyph(ch.char, partColors(ch))}</div></div>
         <div class="char-head__text">
           <p class="pinyin pinyin--xl">${esc(ch.pinyin)}</p>
           <p class="meaning">${esc(ch.meaning)}</p>
-          <p class="example"><span class="hanzi" lang="zh-Hans">${esc(ch.word.zh)}</span> <span class="pinyin">${esc(ch.word.pinyin)}</span> — ${esc(ch.word.ru)}</p>
+          <p class="example"><span class="hanzi" lang="zh-Hans">${esc(ch.word.zh)}</span> <span class="pinyin">${esc(ch.word.pinyin)}</span> — ${esc(ch.word.ru)} <span class="example__tag">· из урока</span></p>
         </div>
       </section>
       <section class="makeup">
@@ -299,69 +366,77 @@ function viewIntro() {
       </section>
     </main>
     <footer class="actions">
-      <button class="btn btn--ghost" type="button" data-action="animate">Порядок черт</button>
+      <button class="btn btn--secondary" type="button" data-action="animate">Порядок черт</button>
       <button class="btn" type="button" data-action="write">Писать</button>
     </footer>`;
 }
 
-// Экран письма: подсказка-задание, полоска шагов, лист и две кнопки.
+// Экран письма: режим сайта, полоска шагов, лист и две кнопки.
 function viewWrite() {
   const ch = current();
   const step = STEPS[state.step];
-  const bar = STEPS.map((s, i) => `<li class="${i < state.step ? "is-done" : i === state.step ? "is-now" : ""}"></li>`).join("");
+  const now = modeOf(state.step);
+  const modes = MODES.map((mode, i) =>
+    `<li class="${i < now ? "is-done" : i === now ? "is-now" : ""}">${mode.name}</li>`).join("");
+  const bar = STEPS.map((s, i) => {
+    const cls = i < state.step ? "is-done" : i === state.step ? "is-now" : "";
+    const gap = i === 1 || i === 3 ? '<li class="gap"></li>' : "";
+    return `<li class="${cls}"></li>${gap}`;
+  }).join("");
 
   return `
-    ${topBar("intro", "Разбор")}
+    ${topBar(`<span class="hanzi" lang="zh-Hans">${esc(ch.char)}</span> · <span class="pinyin">${esc(ch.pinyin)}</span>`, ch.meaning, "intro")}
     <main class="body body--write">
-      <p class="prompt">
-        <span class="pinyin pinyin--lg">${esc(ch.pinyin)}</span>
-        <span class="prompt__ru">${esc(ch.meaning)}</span>
-      </p>
+      <ol class="modes" aria-label="Режим">${modes}</ol>
       <div class="steps">
         <ol class="steps__bar" aria-hidden="true">${bar}</ol>
         <p class="steps__name">Шаг ${state.step + 1} из ${STEPS.length} · ${step.name}</p>
         <p class="steps__rule">${step.rule}</p>
       </div>
       <div class="stage" id="stage">
-        <div class="sheet" id="sheet">${GRID}<div class="sheet__layer" id="writerTarget"></div></div>
+        <div class="paper" id="sheet">${GUIDES}<div class="paper__layer" id="writerTarget"></div></div>
         <p class="status" id="status" aria-live="polite"></p>
       </div>
     </main>
     <footer class="actions">
-      <button class="btn btn--ghost" type="button" data-action="hint">${state.step === LAST_STEP ? "Подсмотреть" : "Подсказка"}</button>
-      <button class="btn btn--ghost" type="button" data-action="restart">Заново</button>
+      <button class="btn btn--secondary" type="button" data-action="hint">${state.step === LAST_STEP ? "Подсмотреть" : "Подсказка"}</button>
+      <button class="btn btn--secondary" type="button" data-action="restart">Начать заново</button>
     </footer>`;
 }
 
-// Экран итога по одному иероглифу.
+// Экран итога по одному иероглифу: статус и ошибки по режимам.
 function viewDone() {
   const ch = current();
-  const result = state.results[ch.char];
+  const result = resultOf(ch);
   const clean = result.status === "learned";
   const next = nextToDo(state.index);
 
-  let verdict = "Написано по памяти без ошибок";
+  let verdict = "Написан по памяти без ошибок и засчитан в «Изучено».";
   if (!clean) {
-    const n = result.mistakes[LAST_STEP] || 0;
     const how = [];
+    const n = result.mistakes[LAST_STEP] || 0;
     if (n) how.push(mistakesText(n));
     if (result.peeked) how.push("с подсказкой");
-    verdict = "По памяти: " + how.join(", ") + ". Иероглиф отмечен на повторение.";
+    verdict = "Проверка знаний: " + how.join(", ") + ". Иероглиф попал во вкладку «На повторение».";
   }
-
-  const report = STEPS.map((s, i) => `<li><span>${s.name}</span><span>${mistakesText(result.mistakes[i])}</span></li>`).join("");
+  const report = MODES.map((mode) => `
+    <section class="report__mode">
+      <h3>${mode.name}</h3>
+      <ul>${mode.steps.map((i) => `<li><span>${STEPS[i].name}</span><span>${mistakesText(result.mistakes[i])}</span></li>`).join("")}</ul>
+    </section>`).join("");
 
   return `
-    ${topBar("lesson", "Урок")}
+    ${topBar(esc(lessonShort()), (state.index + 1) + " из " + CHARS.length, "lesson")}
     <main class="body body--scroll body--result">
-      <div class="sheet sheet--result">${GRID}<div class="sheet__layer">${glyph(ch.char, partColors(ch))}</div>${clean ? CIRCLE : ""}</div>
+      <div class="paper paper--result">${GUIDES}<div class="paper__layer">${glyph(ch.char, partColors(ch))}</div></div>
       <p class="pinyin pinyin--xl">${esc(ch.pinyin)}</p>
       <p class="meaning">${esc(ch.meaning)}</p>
-      <p class="verdict verdict--${clean ? "ok" : "review"}">${verdict}</p>
-      <ol class="report">${report}</ol>
+      ${badge(ch)}
+      <p class="verdict">${verdict}</p>
+      <div class="report">${report}</div>
     </main>
     <footer class="actions">
-      <button class="btn btn--ghost" type="button" data-action="again">Ещё раз по памяти</button>
+      <button class="btn btn--secondary" type="button" data-action="again">Ещё раз по памяти</button>
       <button class="btn" type="button" data-action="next">${next === -1 ? "К уроку" : "Дальше: " + CHARS[next].char}</button>
     </footer>`;
 }
@@ -377,11 +452,31 @@ function render() {
     app.innerHTML = '<p class="boot">Не загрузилась библиотека для письма. Проверь интернет и обнови страницу.</p>';
     return;
   }
-  if (state.screen === "done" && !state.results[current().char]) state.screen = "intro";
+  if (state.screen === "done" && !resultOf(current())) state.screen = "intro";
 
   const views = { lesson: viewLesson, intro: viewIntro, write: viewWrite, done: viewDone };
+  app.classList.toggle("app--focus", state.screen !== "lesson");
   app.innerHTML = views[state.screen]();
   if (state.screen === "write") mountWrite();
+  if (state.screen === "lesson") showActiveTab();
+}
+
+// Ряд вкладок шире телефона: прокручиваем его так, чтобы выбранная была видна.
+function showActiveTab() {
+  const tabs = app.querySelector(".tabs");
+  const active = app.querySelector(".tabs__item.is-active");
+  if (!tabs || !active) return;
+  const overflow = active.offsetLeft + active.offsetWidth - tabs.clientWidth;
+  tabs.scrollLeft = overflow > 0 ? overflow + 8 : 0;
+}
+
+// Перерисовка экрана урока без прыжка наверх (фильтр, вкладка, сброс).
+function renderKeepScroll() {
+  const before = document.getElementById("pageScroll");
+  const top = before ? before.scrollTop : 0;
+  render();
+  const after = document.getElementById("pageScroll");
+  if (after) after.scrollTop = top;
 }
 
 
@@ -422,7 +517,7 @@ function mountWrite() {
 // Библиотека умеет красить только две группы черт: «ключ по словарю» (radStrokes)
 // и все остальные. Поэтому смотрим, какая из наших частей совпадает с этим ключом.
 function writerOptions(ch, size, colored) {
-  const ink = css("--ink");
+  const ink = css("--paper-ink");
   let strokeColor = ink;
   let radicalColor = ink;
 
@@ -444,7 +539,7 @@ function writerOptions(ch, size, colored) {
     radicalColor,
     outlineColor: css("--trace"),
     drawingColor: ink,
-    highlightColor: css("--rule"),
+    highlightColor: css("--highlight"),
     strokeHighlightSpeed: HIGHLIGHT_SPEED,
   };
 }
@@ -505,28 +600,33 @@ function startStep() {
   if (step.lead) startLead();
 }
 
-// Шаг пройден: запоминаем ошибки и идём дальше.
+// Шаг пройден: записываем результат новой копией прогресса и идём дальше.
 function finishStep(mistakes) {
   const ch = current();
-  const result = state.results[ch.char] || { mistakes: [], peeked: false, status: "" };
-  state.results[ch.char] = result;
-  result.mistakes[state.step] = mistakes;
+  const last = state.step === LAST_STEP;
+  const prev = resultOf(ch) || { mistakes: [], peeked: false, status: "" };
+  const marks = prev.mistakes.slice();
+  marks[state.step] = mistakes;
+
+  const result = {
+    mistakes: marks,
+    peeked: last ? attempt.peeked : prev.peeked,
+    status: last ? (mistakes === 0 && !attempt.peeked ? "learned" : "review") : prev.status || "learning",
+  };
+  state.progress = {
+    results: { ...state.progress.results, [ch.char]: result },
+    exercises: state.progress.exercises + 1,
+  };
   attempt.finished = true;
   stopLead();
-
-  const last = state.step === LAST_STEP;
-  if (last) {
-    result.peeked = attempt.peeked;
-    result.status = mistakes === 0 && !attempt.peeked ? "learned" : "review";
-  }
-  saveResults();
+  saveProgress();
 
   say(mistakes ? "Шаг пройден: " + mistakesText(mistakes) : "Шаг пройден без ошибок", "ok");
   advanceTimer = setTimeout(() => {
     if (last) state.screen = "done";
     else state.step += 1;
     render();
-  }, 1100);
+  }, ADVANCE_MS);
 }
 
 // Строка под листом: что делать сейчас или что пошло не так.
@@ -565,12 +665,23 @@ function playAnimation() {
 /* ---------- 6. Кнопки ---------- */
 // Имя слева совпадает с data-action у кнопки на странице.
 
+function openChar(index) {
+  state.index = index;
+  state.step = 0;
+  state.screen = "intro";
+  render();
+}
+
 const actions = {
   open(button) {
-    state.index = Number(button.dataset.index);
-    state.step = 0;
-    state.screen = "intro";
-    render();
+    openChar(Number(button.dataset.index));
+  },
+  train() {
+    openChar(firstToTrain());
+  },
+  tab(button) {
+    state.tab = button.dataset.tab;
+    renderKeepScroll();
   },
   lesson() {
     state.screen = "lesson";
@@ -608,13 +719,8 @@ const actions = {
   },
   next() {
     const i = nextToDo(state.index);
-    if (i === -1) {
-      state.screen = "lesson";
-    } else {
-      state.index = i;
-      state.step = 0;
-      state.screen = "intro";
-    }
+    if (i !== -1) return openChar(i);
+    state.screen = "lesson";
     render();
   },
   reset() {
@@ -623,13 +729,13 @@ const actions = {
       // Первое касание: просим подтвердить. Если второго не будет — кнопка вернётся.
       resetArmed = true;
       resetTimer = setTimeout(disarmReset, RESET_CONFIRM_MS);
-      render();
+      renderKeepScroll();
       return;
     }
     resetArmed = false;
-    state.results = {};
-    saveResults();
-    render();
+    state.progress = EMPTY_PROGRESS;
+    saveProgress();
+    renderKeepScroll();
   },
 };
 
@@ -638,19 +744,28 @@ function disarmReset() {
   clearTimeout(resetTimer);
   if (!resetArmed) return;
   resetArmed = false;
-  if (state.screen === "lesson") render();
+  if (state.screen === "lesson") renderKeepScroll();
 }
 
 // Один обработчик на всю страницу: смотрим, по какой кнопке нажали.
 app.addEventListener("click", (event) => {
   const button = event.target.closest("[data-action]");
-  if (!button || !actions[button.dataset.action]) return;
+  if (!button || button.disabled || !actions[button.dataset.action]) return;
   // Любая другая кнопка отменяет ожидание «Точно сбросить?».
   if (button.dataset.action !== "reset") {
     clearTimeout(resetTimer);
     resetArmed = false;
   }
   actions[button.dataset.action](button);
+});
+
+// Фильтр «Прогресс».
+app.addEventListener("change", (event) => {
+  if (event.target.dataset.change !== "filter") return;
+  const value = event.target.value;
+  if (!FILTERS.some((f) => f.value === value)) return;
+  state.filter = value;
+  renderKeepScroll();
 });
 
 
@@ -666,25 +781,16 @@ function start(saved) {
     state.index = saved.index;
     state.step = Math.min(Math.max(Number(saved.step) || 0, 0), LAST_STEP);
     state.screen = saved.screen;
+    state.tab = saved.tab === "review" ? "review" : "lessons";
   }
   render();
 }
-
-// Смена светлой и тёмной темы: перерисовываем экран, чтобы лист взял новые цвета.
-function onThemeChange() {
-  if (started) render();
-}
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", onThemeChange);
-new MutationObserver(onThemeChange).observe(document.documentElement, {
-  attributes: true,
-  attributeFilter: ["data-theme"],
-});
 
 // На опубликованной странице сервис может обновить её «на лету».
 // Тогда он передаёт, где остановился ученик; в обычном браузере этого объекта нет.
 const hot = window.claude && window.claude.hot;
 if (hot && hot.snapshot) {
-  hot.snapshot(() => ({ screen: state.screen, index: state.index, step: state.step }));
+  hot.snapshot(() => ({ screen: state.screen, index: state.index, step: state.step, tab: state.tab }));
 }
 if (hot && hot.ready) {
   hot.ready(start);
