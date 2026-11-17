@@ -1,0 +1,91 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style><meta name="robots" content="noindex"></head><body><meta name="claude:viewport-fit-sides" content="cover">
+<title>Прописи по уроку</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=Noto+Sans:wght@400;500&family=Podkova:wght@500;700&display=swap">
+<style>
+/* Замысел. Приложение на один экран в одну колонку: лист для письма забирает всё
+   свободное место, кнопки всегда внизу, под большим пальцем.
+   Светлая тема — тетрадь для прописей с зелёной разлиновкой, тёмная — школьная
+   доска и мел. Красный цвет оставлен «ручке учителя»: ошибки и кружок за чистую работу.
+
+   Все цвета и шрифты названы здесь один раз. Чтобы перекрасить страницу,
+   меняют значения в этом блоке — остальной код берёт их по именам. */
+:root {
+  --paper: #f5f8f2;        /* фон страницы: бумага тетради */
+  --sheet: #ffffff;        /* лист, на котором пишут */
+  --ink: #1b2931;          /* чернила: текст и черты */
+  --ink-soft: #56666e;     /* второстепенный текст */
+  --rule: #3f9a74;         /* зелёная разлиновка и подсветка черты */
+  --hairline: #d5e4da;     /* тонкие разделители */
+  --edge: #a9bdb2;         /* рамки кнопок и заметок */
+  --meaning: #2459b8;      /* ключ: часть, которая даёт смысл */
+  --sound: #b34c12;        /* фонетик: часть, которая подсказывает чтение */
+  --teacher: #d2342b;      /* красная ручка учителя */
+  --ok: #1d7d57;           /* «верно» */
+  --button: #1b2931;
+  --button-text: #ffffff;
+  --trace: rgba(27, 41, 49, 0.2);         /* контур-подсказка */
+  --trace-faint: rgba(27, 41, 49, 0.1);   /* бледный контур */
+
+  --font-display: "Podkova", Georgia, "Times New Roman", serif;
+  --font-body: "Golos Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-pinyin: "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-hanzi: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+}
+
+/* Тёмная тема: те же имена, другие значения. Блок повторён дважды:
+   первый срабатывает, когда тёмная тема включена в системе,
+   второй — когда её выбрали переключателем на самой странице. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #171f1c;
+    --sheet: #22302b;
+    --ink: #eef2ea;
+    --ink-soft: #a6b5ad;
+    --rule: #8cc0aa;
+    --hairline: #2d3b36;
+    --edge: #4a5d55;
+    --meaning: #93c2ff;
+    --sound: #ffbd7a;
+    --teacher: #ff9385;
+    --ok: #93e0b6;
+    --button: #eef2ea;
+    --button-text: #171f1c;
+    --trace: rgba(238, 242, 234, 0.24);
+    --trace-faint: rgba(238, 242, 234, 0.11);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #171f1c;
+  --sheet: #22302b;
+  --ink: #eef2ea;
+  --ink-soft: #a6b5ad;
+  --rule: #8cc0aa;
+  --hairline: #2d3b36;
+  --edge: #4a5d55;
+  --meaning: #93c2ff;
+  --sound: #ffbd7a;
+  --teacher: #ff9385;
+  --ok: #93e0b6;
+  --button: #eef2ea;
+  --button-text: #171f1c;
+  --trace: rgba(238, 242, 234, 0.24);
+  --trace-faint: rgba(238, 242, 234, 0.11);
+  color-scheme: dark;
+}
+
+body { background: var(--paper); color: var(--ink); }
+</style>
+<link rel="stylesheet" href="styles.css">
+
+<!-- Сюда app.js подставляет нужный экран: урок, разбор иероглифа, письмо или итог. -->
+<div class="app" id="app">
+  <p class="boot">Открываю тренажёр…</p>
+</div>
+
+<!-- Порядок важен: сначала библиотека для письма, потом данные, потом логика. -->
+<script src="https://cdn.jsdelivr.net/npm/hanzi-writer@3.7.2/dist/hanzi-writer.min.js"></script>
+<script src="strokes.js"></script>
+<script src="lesson.js"></script>
+<script src="app.js"></script>
+</body></html>

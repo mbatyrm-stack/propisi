@@ -1,0 +1,399 @@
+/* Внешний вид страницы. Цвета и шрифты названы в index.html (блок :root);
+   здесь они только используются, поэтому перекрасить всё можно, не трогая этот файл. */
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  overflow: hidden;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.4;
+  -webkit-text-size-adjust: 100%;
+}
+p, h1, h2, ul, ol { margin: 0; padding: 0; }
+ul, ol { list-style: none; }
+button { font: inherit; color: inherit; -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 3px solid var(--meaning); outline-offset: 2px; }
+
+.hanzi { font-family: var(--font-hanzi); }
+.pinyin { font-family: var(--font-pinyin); }
+.boot { color: var(--ink-soft); }
+
+
+/* ---------- Каркас: шапка, середина, кнопки внизу ---------- */
+
+.app {
+  height: 100%;
+  max-width: 35rem;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-block: 12px 14px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+}
+.link {
+  border: 0;
+  background: none;
+  padding: 10px 12px 10px 0;
+  font-weight: 500;
+  cursor: pointer;
+}
+.count {
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Середина растягивается на всё свободное место между шапкой и кнопками. */
+.body {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.body--scroll { overflow-y: auto; overscroll-behavior: contain; }
+.body--scroll > * { flex-shrink: 0; }
+
+.actions { display: flex; gap: 10px; }
+.btn {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 50px;
+  padding: 6px 14px;
+  border: 1.5px solid var(--button);
+  border-radius: 8px;
+  background: var(--button);
+  color: var(--button-text);
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn:active { transform: translateY(1px); }
+.btn--ghost {
+  background: transparent;
+  border-color: var(--edge);
+  color: var(--ink);
+}
+.btn--narrow { flex: 0 0 auto; }
+/* «Точно сбросить?» — кнопка краснеет, чтобы второе касание было осознанным. */
+.btn--danger { border-color: var(--teacher); color: var(--teacher); }
+
+
+/* ---------- Лист в клетку: общий для плиток, разбора и письма ---------- */
+
+.sheet {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  background: var(--sheet);
+  /* Рамка нарисована тенью внутрь, а не border: так она не сдвигает иероглиф. */
+  box-shadow: inset 0 0 0 1.5px var(--rule);
+}
+.sheet__grid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.sheet__grid path {
+  fill: none;
+  stroke: var(--rule);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.42;
+}
+.sheet__layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.glyph { display: block; width: 100%; height: 100%; }
+.glyph--font { display: grid; place-items: center; font-size: 3rem; }
+
+/* Красный кружок учителя вокруг чисто написанного иероглифа. */
+.circle {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.circle path {
+  fill: none;
+  stroke: var(--teacher);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+
+/* ---------- Экран урока ---------- */
+
+.eyebrow {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.title {
+  font-family: var(--font-display);
+  font-size: 2.125rem;
+  font-weight: 700;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+.phrases {
+  display: grid;
+  gap: 14px;
+  padding-block: 14px;
+  border-block: 1px solid var(--hairline);
+}
+.phrase__zh { font-size: 1.5rem; line-height: 1.3; }
+/* Иероглифы этого урока подчёркнуты зелёным, как карандашом в тетради. */
+.phrase__zh mark {
+  background: none;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 6px;
+}
+.phrase__ru { font-size: 0.875rem; color: var(--ink-soft); }
+
+.h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.h2__count {
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 12px;
+}
+.tile {
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: center;
+  cursor: pointer;
+}
+.tile__pinyin { margin-top: 6px; font-weight: 500; }
+.tile__ru { font-size: 0.8125rem; line-height: 1.25; color: var(--ink-soft); }
+.tile__mark { font-size: 0.75rem; font-weight: 600; color: var(--teacher); }
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+}
+.legend .circle { position: static; flex: 0 0 22px; width: 22px; height: 22px; }
+.proto-note { font-size: 0.8125rem; color: var(--ink-soft); }
+
+
+/* ---------- Экран разбора: из чего состоит иероглиф ---------- */
+
+.char-head {
+  display: grid;
+  grid-template-columns: minmax(96px, 8.5rem) minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+.char-head__text { display: grid; gap: 2px; }
+.pinyin--xl { font-size: 1.875rem; font-weight: 500; line-height: 1.15; }
+.meaning { font-size: 1.125rem; font-weight: 600; }
+.example { margin-top: 4px; font-size: 0.9375rem; color: var(--ink-soft); }
+.example .hanzi { font-size: 1.125rem; color: var(--ink); }
+
+.makeup { display: grid; gap: 12px; }
+.kind { font-size: 0.875rem; color: var(--ink-soft); }
+.parts { display: grid; gap: 14px; }
+.part {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 10px 12px;
+  align-items: center;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+.part__glyph {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  background: var(--sheet);
+  border: 1.5px solid currentColor;
+  font-size: 2.125rem;
+  line-height: 1;
+}
+/* Синий — ключ (смысл), рыжий — фонетик (звучание). Те же цвета у черт иероглифа. */
+.part--meaning .part__glyph, .part--meaning .part__role { color: var(--meaning); }
+.part--sound .part__glyph, .part--sound .part__role { color: var(--sound); }
+.part__role {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.part__also { grid-column: 1 / -1; display: grid; gap: 6px; }
+.also__label { font-size: 0.75rem; color: var(--ink-soft); }
+.also {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.25rem, 1fr));
+  gap: 8px 12px;
+}
+.also__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, auto);
+  /* Прижимаем подпись к иероглифу: иначе колонки растягиваются на всю ячейку
+     и пиньинь уезжает вправо, будто относится к соседнему иероглифу. */
+  justify-content: start;
+  column-gap: 8px;
+  align-items: center;
+}
+.also__zh { grid-row: 1 / span 2; font-size: 1.625rem; line-height: 1; }
+.also__py { font-size: 0.875rem; line-height: 1.2; }
+.also__ru { font-size: 0.75rem; line-height: 1.2; color: var(--ink-soft); }
+.also__item--lesson .also__zh {
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
+}
+.also__tag { color: var(--ok); font-weight: 600; }
+
+.note {
+  padding: 10px 12px;
+  border: 1px dashed var(--edge);
+  background: var(--sheet);
+  font-size: 0.9375rem;
+}
+
+
+/* ---------- Экран письма ---------- */
+
+.body--write { gap: 10px; overflow: hidden auto; }
+.body--write > :not(.stage) { flex-shrink: 0; }
+
+.prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+.pinyin--lg { font-size: 1.625rem; font-weight: 500; line-height: 1.15; }
+.prompt__ru { color: var(--ink-soft); }
+
+.steps { display: grid; gap: 4px; }
+.steps__bar {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.steps__bar li { height: 5px; background: var(--hairline); }
+.steps__bar .is-done { background: var(--rule); }
+.steps__bar .is-now { background: var(--ink); }
+.steps__name { font-size: 0.9375rem; font-weight: 600; }
+.steps__rule {
+  min-height: 2.5em;
+  font-size: 0.8125rem;
+  line-height: 1.25;
+  color: var(--ink-soft);
+}
+
+/* Сцена занимает всю оставшуюся высоту. Внутри неё по центру стоят лист
+   и строка состояния под ним. Лист — квадрат, размер которого считает app.js. */
+.stage {
+  flex: 1 1 0;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.stage .sheet {
+  flex: 0 0 auto;
+  aspect-ratio: auto;
+  cursor: crosshair;
+  /* Палец на листе рисует черту, а не двигает страницу и не выделяет текст. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.status {
+  min-height: 1.4em;
+  text-align: center;
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+.status[data-tone="bad"] { color: var(--teacher); }
+.status[data-tone="ok"] { color: var(--ok); }
+
+/* Лист слегка вздрагивает при ошибке — только если в системе не отключена анимация. */
+@media (prefers-reduced-motion: no-preference) {
+  .stage .sheet.is-nudged { animation: nudge 0.24s ease-in-out; }
+}
+@keyframes nudge {
+  0%, 100% { transform: translateX(0); }
+  30% { transform: translateX(-5px); }
+  70% { transform: translateX(5px); }
+}
+
+
+/* ---------- Экран итога по иероглифу ---------- */
+
+.body--result { align-items: center; gap: 10px; text-align: center; }
+.sheet--result { width: min(58%, 13rem); margin-bottom: 4px; }
+.verdict { font-weight: 600; text-wrap: balance; }
+.verdict--ok { color: var(--ok); }
+.verdict--review { color: var(--teacher); }
+.report {
+  width: 100%;
+  max-width: 22rem;
+  margin-top: 6px;
+  text-align: left;
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+}
+.report li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--hairline);
+}
+.report li span:last-child { color: var(--ink-soft); text-align: right; }
